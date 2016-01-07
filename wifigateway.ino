@@ -72,10 +72,9 @@
 #include "GatewayUtil.h"
 
 //wifi module stuff
-//#include <string.h>
-//#include "utility/debug.h"
+#include <string.h>
 #include <Adafruit_CC3000.h>
-//#include <ccspi.h>
+#include <ccspi.h>
 
 #define INCLUSION_MODE_TIME 1 // Number of minutes inclusion mode is enabled
 #define INCLUSION_MODE_PIN  22 // Digital pin used for inclusion mode button
@@ -97,14 +96,14 @@
 Adafruit_CC3000 cc3000 = Adafruit_CC3000(ADAFRUIT_CC3000_CS, ADAFRUIT_CC3000_IRQ, ADAFRUIT_CC3000_VBAT,
                                          SPI_CLOCK_DIVIDER); // you can change this clock speed but DI
 
-#define WLAN_SSID       "EKG-DevMain"        // cannot be longer than 32 characters!
-#define WLAN_PASS       "BigSackLunch"
+#define WLAN_SSID       "SSID"        // cannot be longer than 32 characters!
+#define WLAN_PASS       "secret"
 // Security can be WLAN_SEC_UNSEC, WLAN_SEC_WEP, WLAN_SEC_WPA or WLAN_SEC_WPA2
 #define WLAN_SECURITY   WLAN_SEC_WPA2
 
 
 // NRFRF24L01 radio driver (set low transmit power by default) 
-MyTransportNRF24 transport(5, 6, RF24_PA_LEVEL_GW);  
+MyTransportNRF24 transport(RADIO_CE_PIN, RADIO_SPI_SS_PIN, RF24_PA_LEVEL_GW);  
 
 // Hardware profile 
 MyHwATMega328 hw;
@@ -139,10 +138,9 @@ void output(const char *fmt, ... ) {
 
 void setup()  
 { 
+  //dont uncomment the Serial.Print lines unless you are working on a MEGA
   //Serial.begin(115200);
   //Serial.println(F("Starting Gateway"));
-  
-  
   gw.begin(incomingMessage, 0, true, 0);
   setupGateway(INCLUSION_MODE_PIN, INCLUSION_MODE_TIME, output);
   
@@ -182,21 +180,6 @@ void loop() {
   
   checkButtonTriggeredInclusion();
   checkInclusionFinished();
-
-  
-  // if an incoming client connects, there will be
-  // bytes available to read via the client object
-  //Adafruit_CC3000_ClientRef newclient = server.available();
-  // if a new client connects make sure to dispose any previous existing sockets
-//  if (newclient) {
-      /*if (client != newclient) {
-       client.stop();
-       client = newclient;
-       output(PSTR("0;0;%d;0;%d;Gateway startup complete.\n"),  C_INTERNAL, I_GATEWAY_READY);
-     }*/
-   //  output(PSTR("0;0;%d;0;%d;Gateway startup complete.\n"),  C_INTERNAL, I_GATEWAY_READY);
-   //}
-
 
   Adafruit_CC3000_ClientRef client = server.available();
    if (client) {
