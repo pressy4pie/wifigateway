@@ -72,9 +72,10 @@
 #include "GatewayUtil.h"
 
 //wifi module stuff
-#include <string.h>
+//#include <string.h>
+//#include "utility/debug.h"
 #include <Adafruit_CC3000.h>
-#include <ccspi.h>
+//#include <ccspi.h>
 
 #define INCLUSION_MODE_TIME 1 // Number of minutes inclusion mode is enabled
 #define INCLUSION_MODE_PIN  22 // Digital pin used for inclusion mode button
@@ -96,14 +97,14 @@
 Adafruit_CC3000 cc3000 = Adafruit_CC3000(ADAFRUIT_CC3000_CS, ADAFRUIT_CC3000_IRQ, ADAFRUIT_CC3000_VBAT,
                                          SPI_CLOCK_DIVIDER); // you can change this clock speed but DI
 
-#define WLAN_SSID       "SSID"        // cannot be longer than 32 characters!
-#define WLAN_PASS       "secret"
+#define WLAN_SSID       "EKG-DevMain"        // cannot be longer than 32 characters!
+#define WLAN_PASS       "BigSackLunch"
 // Security can be WLAN_SEC_UNSEC, WLAN_SEC_WEP, WLAN_SEC_WPA or WLAN_SEC_WPA2
 #define WLAN_SECURITY   WLAN_SEC_WPA2
 
 
 // NRFRF24L01 radio driver (set low transmit power by default) 
-MyTransportNRF24 transport(RADIO_CE_PIN, RADIO_SPI_SS_PIN, RF24_PA_LEVEL_GW);  
+MyTransportNRF24 transport(5, 6, RF24_PA_LEVEL_GW);  
 
 // Hardware profile 
 MyHwATMega328 hw;
@@ -121,7 +122,7 @@ MySensor gw(transport, hw /*, signer*/);
 
 // a R/W server on the port
 Adafruit_CC3000_Server server = Adafruit_CC3000_Server(IP_PORT);
-Adafruit_CC3000_Client client = Adafruit_CC3000_Client();
+Adafruit_CC3000_ClientRef client = new Adafruit_CC3000_Client();
 
 char inputString[MAX_RECEIVE_LENGTH] = "";    // A string to hold incoming commands from serial/ethernet interface
 int inputPos = 0;
@@ -136,54 +137,106 @@ void output(const char *fmt, ... ) {
    server.write(serialBuffer);
 }
 
-void setup()  
-{ 
-  //dont uncomment the Serial.Print lines unless you are working on a MEGA
-  //Serial.begin(115200);
-  //Serial.println(F("Starting Gateway"));
-  gw.begin(incomingMessage, 0, true, 0);
-  setupGateway(INCLUSION_MODE_PIN, INCLUSION_MODE_TIME, output);
-  
-  // Add interrupt for inclusion button to pin
-  PCintPort::attachInterrupt(pinInclusion, startInclusionInterrupt, RISING);
-
-  //Serial.println(F("Connecting to WiFi"));
+boolean cc300_Connect() {
   /* Initialise the module */
+  Serial.println(F("Initializing Wifi Module..."));
   if (!cc3000.begin())
   {
     while(1);
   }
+  Serial.println(F("Done."));
 
+  /* Connect to supplied network */
+  Serial.println(F("Connecting to Network..."));
   if (!cc3000.connectToAP(WLAN_SSID, WLAN_PASS, WLAN_SECURITY)) {
     while(1);
   }
+  Serial.println(F("Done."));
   
-  /* Wait for DHCP to complete */   
+  /* Wait for DHCP to complete */  
+  Serial.println(F("Getting IP address from DHCP...")); 
   while (!cc3000.checkDHCP())
   {
     delay(100); // ToDo: Insert a DHCP timeout!
   }  
+  Serial.println(F("Done."));
+  delay(100);
+  Serial.println(F("Connected!"));
+}
+
+void reset_server(){
+   Serial.println(F("========================================================"));
+   Serial.println(F("Resetting Server...."));
+   client.stop();
+   Serial.println(F("Server Reset."));
+   Serial.println(F("========================================================"));
+}
+int connector;
+
+void setup()  
+{ 
+  Serial.begin(115200);
+  //start the gateway.
+  Serial.println(F("Starting Gateway"));
+  delay(500);
+  gw.begin(incomingMessage, 0, true, 0);
+  setupGateway(INCLUSION_MODE_PIN, INCLUSION_MODE_TIME, output);
   
-  // give the Ethernet interface a second to initialize
+  // Add interrupt for inclusion button to pin
+  PCintPort::attachInterrupt(pinInclusion, startInclusionInterrupt, RISING); 
+  
+  /* Connect to wifi */
+  delay(1000);
+  cc300_Connect();
   delay(5000);
    
   // start listening for clients
   server.begin();
-  //Serial.println(F("Connected"));
-  output(PSTR("0;0;%d;0;%d;Gateway startup complete.\n"),  C_INTERNAL, I_GATEWAY_READY);
-
+ 
+  // This next line should not need to be printed in setup. 
+  //output(PSTR("0;0;%d;0;%d;Gateway startup complete.\n"),  C_INTERNAL, I_GATEWAY_READY);
+  Serial.println(F("Setup Complete!"));
+connector = 0;
 }
 
 
 void loop() {
-  gw.process();  
-  
+  gw.process();    
   checkButtonTriggeredInclusion();
   checkInclusionFinished();
+  
+  Adafruit_CC3000_ClientRef newclient = server.available();
+  // if a new client connects make sure to dispose any previous existing sockets
+  if (newclient) {
+      if (client != newclient) {
+       client.stop();
+       client = newclient;
+       Serial.println(F("========================================================"));
+       Serial.println(F("Got new client. "));
+       Serial.println(F("Disconnecting any previous client and resetting gateway."));
+       output(PSTR("0;0;%d;0;%d;Gateway startup complete.\n"),  C_INTERNAL, I_GATEWAY_READY);
+       Serial.println(F("========================================================"));
+       connector = 1;
+     }
+   }
 
-  Adafruit_CC3000_ClientRef client = server.available();
+   //kill the client so someone else can reconnect. this makes sure we can always reconnect if the controller goes controller goes down for some reason.
+   if (!client.connected()) {
+    //if its the first run 
+    if(connector == 0){
+      Serial.println(F("no client"));
+      }  
+         
+    else{
+      Serial.println(F("Disconnected."));
+      client.stop();
+    }
+   }
+
+
    if (client) {
      if (!client.connected()) {
+      Serial.println(F("Disconnecting client"));
        client.stop();
      } else if (client.available()) { 
        // read the bytes incoming from the client
@@ -195,10 +248,10 @@ void loop() {
             // a command was issued by the client
             // we will now try to send it to the actuator
             inputString[inputPos] = 0;
-      
-            // echo the string to the serial port
-            Serial.print(inputString);
-      
+
+            //change inputString into something we can wrap text around.
+            String inString = inputString;         
+            Serial.println("Sending " + inString + " To Gateway");
             parseAndSend(gw, inputString);
       
             // clear the string:
@@ -214,6 +267,7 @@ void loop() {
       }
     }
   }
+  
 }
 
 
